@@ -1,0 +1,21 @@
+{
+  "name": "springboard-pagination-tool",
+  "version": "1.0.0",
+  "description": "Iterate over Springboard Retail collections.",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx mocha *.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "node-fetch": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.2.11",
+    "@types/node": "^13.13.1",
+    "chai": "^4.2.0",
+    "mocha": "^7.1.1"
+  }
+}
