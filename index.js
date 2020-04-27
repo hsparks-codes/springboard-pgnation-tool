@@ -1,4 +1,5 @@
 const fetch = require('node-fetch').default;
+const retry = require('p-retry');
 
 /**
  * @typedef {Object} Springboard
@@ -47,8 +48,13 @@ const iteratePaginatedList = async (springboard, path, consumer) => {
 
         const authorizationHeader = { 'Authorization': `Bearer ${springboard.token}` };
 
-        const data = await fetch(url, { headers: authorizationHeader })
+
+
+        const fetchPage = () => fetch(url, { headers: authorizationHeader })
             .then(response => response.json());
+
+        // Retry a couple of times in case some one-off network error occurred.
+        const data = await retry(fetchPage, { retries: 5 });
 
         if (data.error) throw new Error(data.error);
 

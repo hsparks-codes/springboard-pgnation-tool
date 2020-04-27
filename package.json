@@ -10,7 +10,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "node-fetch": "^2.6.0"
+    "node-fetch": "^2.6.0",
+    "p-retry": "^4.2.0"
   },
   "devDependencies": {
     "@types/chai": "^4.2.11",
