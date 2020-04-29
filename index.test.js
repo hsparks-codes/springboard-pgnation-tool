@@ -36,7 +36,7 @@ it('iterates over every element', async function() {
     let vendors;
 
     try {
-        vendors = await index.getPaginatedList(springboard, path);
+        vendors = await index.getAll(springboard, path);
     } catch (error) {
         // The network is down, our Springboard token is invalid, etc.
         expect.fail(error.message);
@@ -53,7 +53,7 @@ it('stops iterating when cancelled', async function () {
 
     let totalElementsIterated = 0;
 
-    await index.iteratePaginatedList(springboard, path, (element, cancel) => {
+    await index.iterate(springboard, path, (element, cancel) => {
         totalElementsIterated++;
         cancel();
     });

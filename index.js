@@ -8,20 +8,29 @@ const retry = require('p-retry');
  */
 
 /**
- * @typedef {Function} RecordConsumer
- * @param {Object} record - a record in the paginated collection.
+ * @typedef {Object} Cursor
+ * @description Represents the iterator's current position in the collection.
+ * @property {int} page
+ * @property {Springboard} springboard - the Springboard instance that contains this collection
+ * @property {string} path - the url to this collection (Relative to the root API endpoint)
+ */
+
+/**
+ * @typedef {Function} PageConsumer
+ * @param {Array} elements - all elements on the the current page
+ * @param {Cursor} cursor - the current position in the collection
  * @param {Function} cancel - stops iteration over the collection.
  * @returns {undefined} any output returned from the consumer will be ignored
  */
 
 /**
- * Iterates over a Springboard Retail paginated collection.
- * @param {Springboard} springboard the instance of Springboard to fetch the collection from
- * @param {string} path relative path to the collection
- * @param {RecordConsumer} consumer invoked once for every item in the list
- * @returns {Promise<void>} resolves after all records have been iterated over or a {@link RecordConsumer} cancels iteration.
+ * Iterates over each page in the collection.
+ * @param springboard - the Springboard Retail instance containing this collection.
+ * @param path - the path to the collection (relative to the root API endpoint). Can also contain query parameters.
+ * @param {PageConsumer} consumer - a function that processes each page in the collection
+ * @return {Promise<void>} the returned promise resolves after the consumer has been invoked on each page in the collection.
  */
-const iteratePaginatedList = async (springboard, path, consumer) => {
+const iteratePages = async (springboard, path, consumer) => {
     // The absolute URL of the Springboard Retail collection.
     // This is before any iteration query parameters have been interpolated.
     const baseUrl = `https://${springboard.subDomain}.myspringboard.us/api/${path}`;
@@ -48,8 +57,6 @@ const iteratePaginatedList = async (springboard, path, consumer) => {
 
         const authorizationHeader = { 'Authorization': `Bearer ${springboard.token}` };
 
-
-
         const fetchPage = () => fetch(url, { headers: authorizationHeader })
             .then(response => response.json());
 
@@ -62,17 +69,53 @@ const iteratePaginatedList = async (springboard, path, consumer) => {
         // over the elements on the current page.
         pages = data['pages'];
 
-        // Invoke the consumer for each element on the page.
-        for (const element of data.results) {
+        // Pass the page to the consumer for processing.
+        {
+            const cursor = { page, springboard, path };
             let isCancelled = false;
             const cancel = () => isCancelled = true;
 
-            consumer(element, cancel);
+            consumer(data.results, cursor, cancel);
 
-            // If the consumer cancelled iteration, return from the function and forgo any more pages or element.
-            if (isCancelled) return;
+            if (isCancelled) return
         }
     }
+};
+
+
+/**
+ * @typedef {Function} ElementConsumer
+ * @param {Object} record - a record in the paginated collection.
+ * @param {Function} cancel - stops iteration over the collection.
+ * @returns {undefined} any output returned from the consumer will be ignored
+ */
+
+/**
+ * Iterates over a Springboard Retail paginated collection.
+ * @param {Springboard} springboard the instance of Springboard to fetch the collection from
+ * @param {string} path relative path to the collection
+ * @param {ElementConsumer} consumer invoked once for every item in the list
+ * @returns {Promise<void>} resolves after all records have been iterated over or a {@link ElementConsumer} cancels iteration.
+ */
+const iterate = (springboard, path, consumer) => {
+    const pageConsumer = (elements, cursor, cancel) => {
+        for (const element of elements) {
+            let isCancelled = false;
+            const innerCancel = () => isCancelled = true;
+
+            consumer(element, innerCancel);
+
+            if (isCancelled) {
+                // If the ElementConsumer cancelled iteration, we must cancel the page iterator.
+                cancel();
+
+                // The ElementConsumer cancelled iteration, do not pass anymore elements to it.
+                break;
+            }
+        }
+    };
+
+    return iteratePages(springboard, path, pageConsumer);
 };
 
 
@@ -82,16 +125,16 @@ const iteratePaginatedList = async (springboard, path, consumer) => {
  * @param {string} path relative path to the collection
  * @returns {Promise<[]>} the results stored in the collection
  */
-const getPaginatedList = async (springboard, path) => {
+const getAll = async (springboard, path) => {
     const compilation = [];
 
     const consumer = (element, _) => {
         compilation.push(element)
     };
 
-    await iteratePaginatedList(springboard, path, consumer);
+    await iterate(springboard, path, consumer);
 
     return compilation;
 };
 
-module.exports = { iteratePaginatedList, getPaginatedList }
+module.exports = { iteratePages, iterate, getAll };
