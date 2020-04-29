@@ -60,3 +60,24 @@ it('stops iterating when cancelled', async function () {
 
     expect(totalElementsIterated).equals(1);
 });
+
+it('iterates over every element using cursors', async function () {
+    // We are performing some network operation...
+    // This might take a minute.
+    this.timeout(5000);
+
+    const path = 'purchasing/vendors';
+
+    let { next, elements } = await index.getFirstPage(springboard, path);
+
+    let totalElementsReturned = elements.length;
+
+    while (next) {
+        const page = await index.getPage(springboard, next);
+
+        next = page.next;
+        totalElementsReturned += page.elements.length;
+    }
+
+    expect(totalElementsReturned).to.equal(await getCollectionLength(path));
+});

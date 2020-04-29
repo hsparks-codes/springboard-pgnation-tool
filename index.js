@@ -11,30 +11,53 @@ const retry = require('p-retry');
  * @typedef {Object} Cursor
  * @description Represents the iterator's current position in the collection.
  * @property {int} page
- * @property {Springboard} springboard - the Springboard instance that contains this collection
+ * @property {string} subDomain - the Springboard instance that contains this collection
  * @property {string} path - the url to this collection (Relative to the root API endpoint)
  */
 
 /**
+ * @param {Springboard} springboard - the instance of Springboard Retail to get the page from.
+ * @param  {Cursor} cursor - cursor pointing to the page you wish to retrieve
+ * @return {Promise<Object>} deserialized JSON response returned by Springboard Retail.
+ */
+const getRawPage = async (springboard, cursor) => {
+    // The absolute URL of the Springboard Retail collection.
+    let url = `https://${springboard.subDomain}.myspringboard.us/api/${cursor.path}`;
+
+    // Adds a query parameter to the end of the URL.
+    const appendQueryParam = (key, value) =>
+        url += (url.includes('?') ? '&' : '?') + `${key}=${value}`;
+
+    appendQueryParam('page', cursor.page);
+
+    const authorizationHeader = { 'Authorization': `Bearer ${springboard.token}` };
+
+    const fetchPage = () => fetch(url, { headers: authorizationHeader })
+        .then(response => response.json());
+
+    // Retry a couple of times in case some one-off network error occurred.
+    const data = await retry(fetchPage, { retries: 5 });
+
+    if (data.error) throw new Error(data.error);
+
+    return data
+};
+
+/**
  * @typedef {Function} PageConsumer
  * @param {Array} elements - all elements on the the current page
- * @param {Cursor} cursor - the current position in the collection
  * @param {Function} cancel - stops iteration over the collection.
  * @returns {undefined} any output returned from the consumer will be ignored
  */
 
 /**
- * Iterates over each page in the collection.
- * @param springboard - the Springboard Retail instance containing this collection.
+ * Iterates over every page in the collection.
+ * @param {Springboard} springboard - the Springboard Retail instance containing this collection.
  * @param path - the path to the collection (relative to the root API endpoint). Can also contain query parameters.
  * @param {PageConsumer} consumer - a function that processes each page in the collection
  * @return {Promise<void>} the returned promise resolves after the consumer has been invoked on each page in the collection.
  */
 const iteratePages = async (springboard, path, consumer) => {
-    // The absolute URL of the Springboard Retail collection.
-    // This is before any iteration query parameters have been interpolated.
-    const baseUrl = `https://${springboard.subDomain}.myspringboard.us/api/${path}`;
-
     // The page that we are currently on.
     // Zero if iteration has not started yet.
     let page = 0;
@@ -45,25 +68,13 @@ const iteratePages = async (springboard, path, consumer) => {
 
     // Run until we've iterated over every single page.
     while (page < pages) {
+        const cursor = {
+            page: ++page,
+            subDomain: springboard.subDomain,
+            path
+        };
 
-        // The url to this page in the collection. This is the baseUrl but with iteration query parameters.
-        let url = baseUrl;
-
-        // Adds a query parameter to the end of the URL.
-        const appendQueryParam = (key, value) =>
-            url += (url.includes('?') ? '&' : '?') + `${key}=${value}`;
-
-        appendQueryParam('page', ++page);
-
-        const authorizationHeader = { 'Authorization': `Bearer ${springboard.token}` };
-
-        const fetchPage = () => fetch(url, { headers: authorizationHeader })
-            .then(response => response.json());
-
-        // Retry a couple of times in case some one-off network error occurred.
-        const data = await retry(fetchPage, { retries: 5 });
-
-        if (data.error) throw new Error(data.error);
+        const data = await getRawPage(springboard, cursor);
 
         // Update the pages count. The collection might have expanded or contracted while we iterated
         // over the elements on the current page.
@@ -71,11 +82,10 @@ const iteratePages = async (springboard, path, consumer) => {
 
         // Pass the page to the consumer for processing.
         {
-            const cursor = { page, springboard, path };
             let isCancelled = false;
             const cancel = () => isCancelled = true;
 
-            consumer(data.results, cursor, cancel);
+            consumer(data.results, cancel);
 
             if (isCancelled) return
         }
@@ -91,14 +101,14 @@ const iteratePages = async (springboard, path, consumer) => {
  */
 
 /**
- * Iterates over a Springboard Retail paginated collection.
+ * Iterates over each element in a Springboard Retail paginated collection.
  * @param {Springboard} springboard the instance of Springboard to fetch the collection from
  * @param {string} path relative path to the collection
  * @param {ElementConsumer} consumer invoked once for every item in the list
  * @returns {Promise<void>} resolves after all records have been iterated over or a {@link ElementConsumer} cancels iteration.
  */
 const iterate = (springboard, path, consumer) => {
-    const pageConsumer = (elements, cursor, cancel) => {
+    const pageConsumer = (elements, cancel) => {
         for (const element of elements) {
             let isCancelled = false;
             const innerCancel = () => isCancelled = true;
@@ -137,4 +147,52 @@ const getAll = async (springboard, path) => {
     return compilation;
 };
 
-module.exports = { iteratePages, iterate, getAll };
+/**
+ * @typedef {Object} PageData
+ * @property {Cursor|null} next - a cursor that points to the next page in the collection. Null if this is the last page.
+ *  Pass the cursor to {@link getPage} to get subsequent pages.
+ * @property {Array} elements - an array of the elements on this page
+ */
+
+/**
+ * Returns the collection page that corresponds to the given cursor.
+ * @param {Springboard} springboard - the instance of Springboard Retail to get the page from.
+ * @param {Cursor} cursor
+ * @return {Promise<PageData>}
+ */
+const getPage = async (springboard, cursor) => {
+    if (cursor.subDomain !== springboard.subDomain)
+        throw new Error('The given Springboard instance can\'t be used to access that cursor.');
+
+    const rawPageData = await getRawPage(springboard, cursor);
+
+    const pageData = {
+        /** @type {Cursor|null} */
+        next: null,
+
+        /** @type {Array} */
+        elements: rawPageData.results
+    };
+
+    if (cursor.page < rawPageData['pages']) {
+        pageData.next = Object.assign({}, cursor);
+        pageData.next.page++;
+    }
+
+    return pageData;
+ };
+
+/**
+ * Returns the first page of a Springboard Retail collection.
+ * @param {Springboard} springboard - the instance of Springboard Retail to fetch the collection from
+ * @param {string} path - the relative path to the collection
+ * @return {Promise<PageData>}
+ */
+const getFirstPage = (springboard, path) =>
+    getPage(springboard, {
+        page: 1,
+        subDomain: springboard.subDomain,
+        path
+    });
+
+module.exports = { iteratePages, iterate, getAll, getPage, getFirstPage };
