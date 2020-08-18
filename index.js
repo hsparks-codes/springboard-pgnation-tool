@@ -85,7 +85,7 @@ const iteratePages = async (springboard, path, consumer) => {
             let isCancelled = false;
             const cancel = () => isCancelled = true;
 
-            consumer(data.results, cancel);
+            await consumer(data.results, cancel);
 
             if (isCancelled) return
         }
@@ -108,12 +108,12 @@ const iteratePages = async (springboard, path, consumer) => {
  * @returns {Promise<void>} resolves after all records have been iterated over or a {@link ElementConsumer} cancels iteration.
  */
 const iterate = (springboard, path, consumer) => {
-    const pageConsumer = (elements, cancel) => {
+    const pageConsumer = async (elements, cancel) => {
         for (const element of elements) {
             let isCancelled = false;
             const innerCancel = () => isCancelled = true;
 
-            consumer(element, innerCancel);
+            await consumer(element, innerCancel);
 
             if (isCancelled) {
                 // If the ElementConsumer cancelled iteration, we must cancel the page iterator.
